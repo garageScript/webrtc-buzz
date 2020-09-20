@@ -25,6 +25,11 @@ function PeerConnection(remoteSocketId) {
     ],
   });
 
+  const stream = localVideo.srcObject;
+  stream.getTracks().forEach((track) => {
+    peerConnection.addTrack(track, stream);
+  });
+
   peerConnection.onicecandidate = (event) => {
     console.log("ice candidate", event.candidate);
     if (event.candidate) {
@@ -81,3 +86,11 @@ socket.on("watcherIceCandidate", ({ from, candidate }) => {
   const connection = peerConnections[from];
   connection.addIceCandidate(candidate);
 });
+
+const localVideo = document.querySelector("#broadcastVideo");
+navigator.mediaDevices
+  .getUserMedia({ video: true, audio: true })
+  .then((stream) => {
+    localVideo.srcObject = stream;
+  })
+  .catch((error) => console.error(error));

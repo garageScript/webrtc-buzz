@@ -5,6 +5,8 @@ const socket = io("https://realtime.songz.dev/webrtc_songz_dev");
 const peerConnections = {};
 
 function Stream(remoteSocketId) {
+  const video = document.createElement("video");
+  video.setAttribute("autoplay", "true");
   const peerConnection = new RTCPeerConnection({
     iceServers: [
       {
@@ -28,6 +30,11 @@ function Stream(remoteSocketId) {
     }
   };
 
+  peerConnection.ontrack = (event) => {
+    video.srcObject = event.streams[0];
+    console.log("event.streams.length", event.streams.length);
+  };
+
   this.setRemoteSDP = (sdpInfo) => {
     console.log("setting remote Info", sdpInfo);
     peerConnection
@@ -44,6 +51,7 @@ function Stream(remoteSocketId) {
             sdpInfo: peerConnection.localDescription,
           },
         });
+        root.append(video);
       });
   };
   this.addIceCandidate = (candidate) => {
