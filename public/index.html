@@ -10,8 +10,18 @@
     <header>
       <h1>WebRTC Demo</h1>
     </header>
+      <div id="root"></div>
+      <video id="local-video"></video>
 
      <script src="https://realtime.songz.dev/socket.io/socket.io.js"></script> 
      <script src="/app.js"></script>
+     <style>
+#local-video {
+  position: fixed;
+  bottom: 5px;
+  right: 5px;
+  width: 320px;
+}
+     </style>
   </body>
 </html>

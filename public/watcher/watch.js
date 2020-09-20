@@ -13,6 +13,21 @@ function Stream(remoteSocketId) {
     ],
   });
 
+  peerConnection.onicecandidate = (event) => {
+    console.log("ice candidate", event.candidate);
+    if (event.candidate) {
+      console.log("sending candidate info", event.candidate);
+      socket.emit("direct", {
+        eventName: "watcherIceCandidate",
+        socketId: remoteSocketId,
+        data: {
+          candidate: event.candidate,
+          from: socket.id,
+        },
+      });
+    }
+  };
+
   this.setRemoteSDP = (sdpInfo) => {
     console.log("setting remote Info", sdpInfo);
     peerConnection
@@ -30,6 +45,10 @@ function Stream(remoteSocketId) {
           },
         });
       });
+  };
+  this.addIceCandidate = (candidate) => {
+    console.log("adding ice candidate");
+    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
   };
 }
 
@@ -53,4 +72,9 @@ socket.on("broadcastAvailable", ({ from }) => {
 socket.on("sdpInfo", ({ from, sdpInfo }) => {
   const stream = peerConnections[from];
   stream.setRemoteSDP(sdpInfo);
+});
+
+socket.on("broadcasterIceCandidate", ({ from, candidate }) => {
+  const stream = peerConnections[from];
+  stream.addIceCandidate(candidate);
 });
