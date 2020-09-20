@@ -2,7 +2,7 @@ const root = document.querySelector("#root");
 
 const socket = io("https://realtime.songz.dev/webrtc_songz_dev");
 
-const peerConnections = {};
+const watcherConnections = {};
 
 function Stream(remoteSocketId) {
   const video = document.createElement("video");
@@ -61,7 +61,7 @@ function Stream(remoteSocketId) {
 }
 
 socket.on("broadcastAvailable", ({ from }) => {
-  const connection = peerConnections[from];
+  const connection = watcherConnections[from];
   if (connection) {
     // already established, so ignore this
     return;
@@ -74,15 +74,15 @@ socket.on("broadcastAvailable", ({ from }) => {
       from: socket.id,
     },
   });
-  peerConnections[from] = new Stream(from);
+  watcherConnections[from] = new Stream(from);
 });
 
 socket.on("sdpInfo", ({ from, sdpInfo }) => {
-  const stream = peerConnections[from];
+  const stream = watcherConnections[from];
   stream.setRemoteSDP(sdpInfo);
 });
 
 socket.on("broadcasterIceCandidate", ({ from, candidate }) => {
-  const stream = peerConnections[from];
+  const stream = watcherConnections[from];
   stream.addIceCandidate(candidate);
 });
