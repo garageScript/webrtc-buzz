@@ -30,6 +30,10 @@ function PeerConnection(remoteSocketId) {
     peerConnection.addTrack(track, stream);
   });
 
+  this.addNewStream = (newStream) => {
+    peerConnection.addStream(newStream);
+  };
+
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
       console.log("sending candidate info", event.candidate);
@@ -123,6 +127,17 @@ function Stream(remoteSocketId) {
   };
 
   peerConnection.ontrack = (event) => {
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
+    console.log("event track");
     video.srcObject = event.streams[0];
     console.log("event.streams.length", event.streams.length);
   };
@@ -178,3 +193,17 @@ socket.on("broadcasterIceCandidate", ({ from, candidate }) => {
   const stream = watcherConnections[from];
   stream.addIceCandidate(candidate);
 });
+
+document.querySelector("#shareScreenButton").onclick = async () => {
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+  const screen = document.createElement("video");
+  const body = document.querySelector("body");
+  screen.srcObject = stream;
+  screen.setAttribute("id", "screenVideo");
+  screen.setAttribute("autoplay", true);
+  body.append(screen);
+
+  Object.values(peerConnections).forEach((pc) => {
+    pc.addNewStream(stream);
+  });
+};

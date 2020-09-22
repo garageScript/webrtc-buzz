@@ -1,27 +1,32 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <title>WebRTC</title>
-    <link rel="stylesheet" href="https://fonts.xz.style/serve/inter.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@exampledev/new.css@1.1.2/new.min.css">
-  </head>
-  <body>
-    <header>
-      <h1>WebRTC Demo</h1>
-    </header>
-      <div id="root"></div>
-      <video id="local-video"></video>
+<div id="broadcastVideoContainer">
+  <video id="broadcastVideo" autoplay muted></video>
+  <button id="shareScreenButton">Share Screen</button>
+</div>
+<div id="root"></div>
+<script src="https://realtime.songz.dev/socket.io/socket.io.js"></script> 
+<script src="/broadcaster/broadcast.js"></script>
 
-     <script src="https://realtime.songz.dev/socket.io/socket.io.js"></script> 
-     <script src="/app.js"></script>
-     <style>
-#local-video {
+<style>
+#broadcastVideoContainer {
   position: fixed;
-  bottom: 5px;
-  right: 5px;
+  bottom: 10px;
+  right: 10px;
+}
+#broadcastVideoContainer video{
   width: 320px;
 }
-     </style>
-  </body>
-</html>
+#screenVideo {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  width: 100%;
+}
+
+#root {
+  position: relative;
+  z-index: 2;
+}
+</style>
