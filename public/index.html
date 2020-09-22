@@ -1,6 +1,5 @@
 <div id="broadcastVideoContainer">
   <video id="broadcastVideo" autoplay muted></video>
-  <button id="shareScreenButton">Share Screen</button>
 </div>
 <div id="root"></div>
 <script src="https://realtime.songz.dev/socket.io/socket.io.js"></script> 
@@ -9,11 +8,12 @@
 <style>
 #broadcastVideoContainer {
   position: fixed;
-  bottom: 10px;
-  right: 10px;
+  bottom: 5px;
+  right: 5px;
+  width: 160px;
 }
 #broadcastVideoContainer video{
-  width: 320px;
+  width: 160px;
 }
 #screenVideo {
   position: fixed;
@@ -26,7 +26,31 @@
 }
 
 #root {
-  position: relative;
+  position: fixed;
   z-index: 2;
+  background-color: #ccc;
+  overflow: auto;
+
+  bottom: 5px;
+  right: 165px;
+  left: 5px;
+}
+
+#root video {
+  margin-right: 5px;
+  border: 1px solid #aaa;
+  box-sizing: border-box;
+  width: 160px;
+  cursor: pointer;
+  z-index: 2;
+}
+#root .selectedVideo {
+  position: fixed;
+  top: 0;
+  bottom: 130px;
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 1;
 }
 </style>

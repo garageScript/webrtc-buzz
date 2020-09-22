@@ -102,6 +102,18 @@ const watcherConnections = {};
 
 function Stream(remoteSocketId) {
   const video = document.createElement("video");
+  video.onclick = () => {
+    if (video.classList.contains("selectedVideo")) {
+      return video.classList.remove("selectedVideo");
+    }
+    Object.values(watcherConnections).forEach((wc) => wc.unselect());
+    video.classList.add("selectedVideo");
+    /*
+    document.querySelector(".selectedVideo").style.height = `${
+      window.innerHeight - 150
+    }px`;
+    */
+  };
   video.setAttribute("autoplay", "true");
   const peerConnection = new RTCPeerConnection({
     iceServers: [
@@ -127,17 +139,6 @@ function Stream(remoteSocketId) {
   };
 
   peerConnection.ontrack = (event) => {
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
-    console.log("event track");
     video.srcObject = event.streams[0];
     console.log("event.streams.length", event.streams.length);
   };
@@ -164,6 +165,12 @@ function Stream(remoteSocketId) {
   this.addIceCandidate = (candidate) => {
     console.log("adding ice candidate");
     peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  };
+  this.unselect = () => {
+    video.classList.remove("selectedVideo");
+  };
+  this.remove = () => {
+    video.remove();
   };
 }
 
@@ -194,16 +201,10 @@ socket.on("broadcasterIceCandidate", ({ from, candidate }) => {
   stream.addIceCandidate(candidate);
 });
 
-document.querySelector("#shareScreenButton").onclick = async () => {
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-  const screen = document.createElement("video");
-  const body = document.querySelector("body");
-  screen.srcObject = stream;
-  screen.setAttribute("id", "screenVideo");
-  screen.setAttribute("autoplay", true);
-  body.append(screen);
-
-  Object.values(peerConnections).forEach((pc) => {
-    pc.addNewStream(stream);
-  });
-};
+socket.on("connectionDestroyed", ({ socketId }) => {
+  console.log(`${socketId} left the room`);
+  if (watcherConnections[socketId]) {
+    watcherConnections[socketId].remove();
+    delete watcherConnections[socketId];
+  }
+});
