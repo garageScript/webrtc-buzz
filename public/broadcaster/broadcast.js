@@ -12,7 +12,6 @@ const sendBroadcast = () => {
   });
   setTimeout(sendBroadcast, 2000);
 };
-sendBroadcast();
 
 const peerConnections = {};
 
@@ -95,19 +94,24 @@ navigator.mediaDevices
   .getUserMedia({ video: true, audio: true })
   .then((stream) => {
     localVideo.srcObject = stream;
+    sendBroadcast();
   })
   .catch((error) => console.error(error));
 
 const watcherConnections = {};
 
 function Stream(remoteSocketId) {
+  const videoContainer = document.createElement("div");
+  videoContainer.classList.add("videoContainer");
+
   const video = document.createElement("video");
-  video.onclick = () => {
-    if (video.classList.contains("selectedVideo")) {
-      return video.classList.remove("selectedVideo");
+  videoContainer.append(video);
+  videoContainer.onclick = () => {
+    if (videoContainer.classList.contains("selectedVideo")) {
+      return videoContainer.classList.remove("selectedVideo");
     }
     Object.values(watcherConnections).forEach((wc) => wc.unselect());
-    video.classList.add("selectedVideo");
+    videoContainer.classList.add("selectedVideo");
     /*
     document.querySelector(".selectedVideo").style.height = `${
       window.innerHeight - 150
@@ -159,7 +163,7 @@ function Stream(remoteSocketId) {
             sdpInfo: peerConnection.localDescription,
           },
         });
-        root.append(video);
+        root.append(videoContainer);
       });
   };
   this.addIceCandidate = (candidate) => {
@@ -167,10 +171,10 @@ function Stream(remoteSocketId) {
     peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
   };
   this.unselect = () => {
-    video.classList.remove("selectedVideo");
+    videoContainer.classList.remove("selectedVideo");
   };
   this.remove = () => {
-    video.remove();
+    videoContainer.remove();
   };
 }
 
