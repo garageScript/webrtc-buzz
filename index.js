@@ -1,6 +1,10 @@
 const express = require("express");
 const app = express();
 
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + `/public/landing.html`);
+});
+
 app.use(express.static("public"));
 
 app.get("/:roomname", (req, res) => {
