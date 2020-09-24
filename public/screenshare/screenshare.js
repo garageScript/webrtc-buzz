@@ -1,6 +1,16 @@
 const localVideo = document.querySelector("#localVideo");
 
-const socket = io("https://realtime.songz.dev/webrtc_songz_dev");
+const getNameSpace = () => {
+  const pathName = window.location.pathname
+    .split("/")
+    .filter((e) => e.trim() && e.toLowerCase() !== "screenshare")
+    .join("_")
+    .toLowerCase();
+  const hostName = window.location.hostname.split(".").join("_").toLowerCase();
+  return `${hostName}_${pathName}`;
+};
+console.log("hi");
+const socket = io(`https://realtime.songz.dev/${getNameSpace()}`);
 
 const sendBroadcast = () => {
   console.log("sending broadcast");

@@ -1,6 +1,36 @@
 const root = document.querySelector("#root");
 
-const socket = io("https://realtime.songz.dev/webrtc_songz_dev");
+// Input: https://songz.dewebrtc.dev/helloworld
+// should return songz_dewebrtc_dev__helloworld_
+/*
+const getNameSpace = () => {
+  return `${window.location.hostname
+    .split(".")
+    .join("_")}_${window.location.pathname.split("/").join("_")}`;
+};
+*/
+
+const lowerCasePath = window.location.pathname.toLowerCase().split("/");
+
+const getNameSpace = () => {
+  const pathName = lowerCasePath
+    .filter((e) => e.trim() && e !== "screenshare")
+    .join("_");
+  const hostName = window.location.hostname.split(".").join("_").toLowerCase();
+  return `${hostName}_${pathName}`;
+};
+
+//const test = lowerCasePath.filter((e) => e !== "");
+//console.log(test, typeof test);
+
+let screenSharePath = `/${lowerCasePath.filter((e) => e !== "")}/screenshare`;
+
+// in the event that there is no room name
+if (screenSharePath === "//screenshare") screenSharePath = "/screenshare";
+
+document.querySelector("#screenShareUrl").setAttribute("href", screenSharePath);
+
+const socket = io(`https://realtime.songz.dev/${getNameSpace()}`);
 
 const sendBroadcast = () => {
   console.log("sending broadcast");
