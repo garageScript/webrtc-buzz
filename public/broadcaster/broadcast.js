@@ -1,14 +1,17 @@
 const root = document.querySelector("#root");
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Input: https://songz.dewebrtc.dev/helloworld
-// should return songz_dewebrtc_dev__helloworld_
-/*
-const getNameSpace = () => {
-  return `${window.location.hostname
-    .split(".")
-    .join("_")}_${window.location.pathname.split("/").join("_")}`;
+const errorLog = console.error;
+
+const createPeerConnection = () => {
+  return new RTCPeerConnection({
+    iceServers: [
+      {
+        urls: ["stun:stun.l.google.com:19302"],
+      },
+    ],
+  });
 };
-*/
 
 const lowerCasePath = window.location.pathname.toLowerCase().split("/");
 
@@ -20,15 +23,17 @@ const getNameSpace = () => {
   return `${hostName}_${pathName}`;
 };
 
-//const test = lowerCasePath.filter((e) => e !== "");
-//console.log(test, typeof test);
+const getScreenshareUrl = () => {
+  let screenSharePath = `/${lowerCasePath.filter((e) => e !== "")}/screenshare`;
 
-let screenSharePath = `/${lowerCasePath.filter((e) => e !== "")}/screenshare`;
+  // in the event that there is no room name
+  if (screenSharePath === "//screenshare") screenSharePath = "/screenshare";
+  return screenSharePath;
+};
 
-// in the event that there is no room name
-if (screenSharePath === "//screenshare") screenSharePath = "/screenshare";
-
-document.querySelector("#screenShareUrl").setAttribute("href", screenSharePath);
+document
+  .querySelector("#screenShareUrl")
+  .setAttribute("href", getScreenshareUrl());
 
 const socket = io(`https://realtime.songz.dev/${getNameSpace()}`);
 
@@ -40,84 +45,273 @@ const sendBroadcast = () => {
       from: socket.id,
     },
   });
-  setTimeout(sendBroadcast, 2000);
+  setTimeout(sendBroadcast, 5000);
 };
 
-const peerConnections = {};
+const viewerConnections = {};
 
-function PeerConnection(remoteSocketId) {
-  const peerConnection = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: ["stun:stun.l.google.com:19302"],
-      },
-    ],
-  });
-
+function Viewer(remoteSocketId, sdpInfo) {
+  const { log, error } = createLogger("Viewer");
+  const peerConnection = createPeerConnection();
   const stream = localVideo.srcObject;
-  stream.getTracks().forEach((track) => {
-    peerConnection.addTrack(track, stream);
-  });
+  this.pc = peerConnection;
 
-  this.addNewStream = (newStream) => {
-    peerConnection.addStream(newStream);
-  };
-
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      console.log("sending candidate info", event.candidate);
-      socket.emit("direct", {
-        eventName: "broadcasterIceCandidate",
-        socketId: remoteSocketId,
-        data: {
-          candidate: event.candidate,
-          from: socket.id,
-        },
-      });
-    }
-  };
+  this.runStream = () => {};
 
   peerConnection
-    .createOffer()
-    .then((sdp) => {
-      return peerConnection.setLocalDescription(sdp);
-    })
+    .setRemoteDescription(sdpInfo)
+    .then(() => peerConnection.createAnswer())
+    .then((sdp) => peerConnection.setLocalDescription(sdp))
     .then(() => {
-      socket.emit("direct", {
-        eventName: "sdpInfo",
+      return socket.emit("direct", {
         socketId: remoteSocketId,
+        eventName: "connectionAnswer",
         data: {
-          sdpInfo: peerConnection.localDescription,
           from: socket.id,
+          sdpInfo: peerConnection.localDescription,
         },
       });
     });
-  this.setRemoteDescription = (sdpInfo) => {
-    peerConnection.setRemoteDescription(sdpInfo);
-    console.log(
-      "local and remote descriptions have been set. We are awesome now"
+
+  let negotiating; // Chrome workaround
+  peerConnection.onnegotiationneeded = () => {
+    log("negotiations needed", negotiating);
+    if (negotiating) return;
+    negotiating = true;
+    peerConnection
+      .createOffer()
+      .then((d) => peerConnection.setLocalDescription(d))
+      .then(
+        () =>
+          live &&
+          signaling.send(
+            JSON.stringify({ sdp: peerConnection.localDescription })
+          )
+      )
+      .catch(errorLog);
+  };
+  peerConnection.onsignalingstatechange = () => {
+    negotiating = peerConnection.signalingState != "stable";
+    log(
+      `signaling State: ${peerConnection.signalingState}, resulting negotiating state is`,
+      negotiating
     );
   };
+
+  let live = false;
+  peerConnection.onicecandidate = (event) => {
+    log("onicecandidate");
+    if (!event.candidate) return;
+    return socket.emit("direct", {
+      socketId: remoteSocketId,
+      eventName: "iceCandidate",
+      data: {
+        eventDestination: "broadcaster",
+        from: socket.id,
+        candidate: event.candidate,
+      },
+    });
+  };
+
+  let signaling;
+  peerConnection.ondatachannel = (e) => {
+    log("live, setting signaling and sending track");
+    if (!signaling) {
+      signaling = e.channel;
+      bindSignaling(signaling, peerConnection, log);
+    }
+    live = true;
+    stream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, stream);
+    });
+  };
+
+  peerConnection.onclose = () => {
+    log("Connection closed");
+    this.remove();
+    delete viewerConnections[remoteSocketId];
+  };
+
+  this.addTrack = () => {};
+
   this.addIceCandidate = (candidate) => {
     console.log("adding ice candidate");
     peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
   };
+
+  this.remove = () => {
+    peerConnection.close();
+  };
 }
 
-socket.on("getBroadcast", ({ from }) => {
-  console.log("a watcher wants my broadcast!", from);
-  peerConnections[from] = new PeerConnection(from);
-});
+const broadcasterConnections = {};
 
-socket.on("connectionAnswer", ({ from, sdpInfo }) => {
-  console.log("a watcher send me their remote description", from, sdpInfo);
-  peerConnections[from].setRemoteDescription(sdpInfo);
-});
+const bindSignaling = (sc, pc, log) => {
+  sc.onmessage = (e) =>
+    wait(0)
+      .then(() => {
+        const msg = JSON.parse(e.data);
+        log(`signaling: message received`);
+        if (msg.sdp) {
+          log(`signaling: sdp`);
+          var desc = new RTCSessionDescription(JSON.parse(e.data).sdp);
+          if (desc.type == "offer") {
+            pc.setRemoteDescription(desc)
+              .then(() => pc.createAnswer())
+              .then((answer) => pc.setLocalDescription(answer))
+              .then(() => {
+                sc.send(JSON.stringify({ sdp: pc.localDescription }));
+              })
+              .catch(errorLog);
+          } else {
+            pc.setRemoteDescription(desc).catch(errorLog);
+          }
+        } else if (msg.candidate) {
+          log(`signaling: candidate`);
+          pc.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(
+            errorLog
+          );
+        }
+      })
+      .catch(errorLog);
+  return sc;
+};
 
-socket.on("watcherIceCandidate", ({ from, candidate }) => {
-  const connection = peerConnections[from];
-  connection.addIceCandidate(candidate);
-});
+const createLogger = (label) => {
+  return {
+    log: (...data) => {
+      console.log(label, ...data);
+    },
+    error: (...data) => {
+      console.error(label, ...data);
+    },
+  };
+};
+
+function Broadcaster(remoteSocketId) {
+  const { log, error } = createLogger("BROADCASTER");
+  let live = false;
+  const videoContainer = document.createElement("div");
+  videoContainer.classList.add("videoContainer");
+
+  const video = document.createElement("video");
+  videoContainer.append(video);
+  videoContainer.onclick = () => {
+    if (videoContainer.classList.contains("selectedVideo")) {
+      return videoContainer.classList.remove("selectedVideo");
+    }
+    Object.values(broadcasterConnections).forEach((wc) => wc.unselect());
+    videoContainer.classList.add("selectedVideo");
+  };
+  video.setAttribute("autoplay", "true");
+
+  const peerConnection = createPeerConnection();
+  this.pc = peerConnection;
+  const signaling = peerConnection.createDataChannel("signaling");
+  bindSignaling(signaling, peerConnection, log);
+  signaling.onopen = () => {
+    log("signaling open, went live");
+    live = true;
+  };
+
+  let negotiating; // Chrome workaround
+  peerConnection.onnegotiationneeded = () => {
+    if (negotiating) return;
+    negotiating = true;
+    peerConnection
+      .createOffer()
+      .then((d) => peerConnection.setLocalDescription(d))
+      .then(
+        () =>
+          live &&
+          signaling.send(
+            JSON.stringify({ sdp: peerConnection.localDescription })
+          )
+      )
+      .catch(errorLog);
+  };
+  peerConnection.onsignalingstatechange = () => {
+    negotiating = peerConnection.signalingState != "stable";
+    log(
+      `signaling State: ${peerConnection.signalingState}, resulting negotiating state is`,
+      negotiating
+    );
+  };
+
+  peerConnection.onicecandidate = (event) => {
+    log("signaling onicecandidate");
+    if (!live) {
+      if (!event.candidate) {
+        log("sending SDP Info");
+        socket.emit("direct", {
+          eventName: "sdpInfo",
+          socketId: remoteSocketId,
+          data: {
+            sdpInfo: peerConnection.localDescription,
+            from: socket.id,
+          },
+        });
+      }
+      return;
+    }
+    if (!event.candidate) {
+      return error("not live an no candidate, should not happen");
+    }
+    log("---sending signaling info---");
+    signaling.send(JSON.stringify({ candidate: event.candidate }));
+  };
+
+  peerConnection.ontrack = (event) => {
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    console.log("track received");
+    video.srcObject = event.streams[0];
+    console.log("event.streams.length", event.streams.length);
+  };
+
+  peerConnection.onopen = () => {
+    console.log("connection is live!");
+    console.log("connection is live!");
+    console.log("connection is live!");
+    live = true;
+    console.log("connection is live!");
+  };
+
+  peerConnection.onclose = () => {
+    log("Connection closed");
+    this.remove();
+    delete broadcasterConnections[remoteSocketId];
+  };
+
+  this.setRemoteDescription = (sdpInfo) => {
+    log("sdpInfo Received, local and remote peer config complete");
+    peerConnection.setRemoteDescription(sdpInfo);
+  };
+
+  this.addIceCandidate = (candidate) => {
+    console.log("adding ice candidate");
+    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  };
+  this.unselect = () => {
+    videoContainer.classList.remove("selectedVideo");
+  };
+  this.remove = () => {
+    videoContainer.remove();
+    peerConnection.close();
+  };
+  root.append(videoContainer);
+}
 
 const localVideo = document.querySelector("#broadcastVideo");
 navigator.mediaDevices
@@ -128,117 +322,41 @@ navigator.mediaDevices
   })
   .catch((error) => console.error(error));
 
-const watcherConnections = {};
-
-function Stream(remoteSocketId) {
-  const videoContainer = document.createElement("div");
-  videoContainer.classList.add("videoContainer");
-
-  const video = document.createElement("video");
-  videoContainer.append(video);
-  videoContainer.onclick = () => {
-    if (videoContainer.classList.contains("selectedVideo")) {
-      return videoContainer.classList.remove("selectedVideo");
-    }
-    Object.values(watcherConnections).forEach((wc) => wc.unselect());
-    videoContainer.classList.add("selectedVideo");
-    /*
-    document.querySelector(".selectedVideo").style.height = `${
-      window.innerHeight - 150
-    }px`;
-    */
-  };
-  video.setAttribute("autoplay", "true");
-  const peerConnection = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: ["stun:stun.l.google.com:19302"],
-      },
-    ],
-  });
-
-  peerConnection.onicecandidate = (event) => {
-    console.log("ice candidate", event.candidate);
-    if (event.candidate) {
-      console.log("sending candidate info", event.candidate);
-      socket.emit("direct", {
-        eventName: "watcherIceCandidate",
-        socketId: remoteSocketId,
-        data: {
-          candidate: event.candidate,
-          from: socket.id,
-        },
-      });
-    }
-  };
-
-  peerConnection.ontrack = (event) => {
-    video.srcObject = event.streams[0];
-    console.log("event.streams.length", event.streams.length);
-  };
-
-  this.setRemoteSDP = (sdpInfo) => {
-    console.log("setting remote Info", sdpInfo);
-    peerConnection
-      .setRemoteDescription(sdpInfo)
-      .then(() => peerConnection.createAnswer())
-      .then((sdp) => peerConnection.setLocalDescription(sdp))
-      .then(() => {
-        console.log("remote description is set");
-        socket.emit("direct", {
-          socketId: remoteSocketId,
-          eventName: "connectionAnswer",
-          data: {
-            from: socket.id,
-            sdpInfo: peerConnection.localDescription,
-          },
-        });
-        root.append(videoContainer);
-      });
-  };
-  this.addIceCandidate = (candidate) => {
-    console.log("adding ice candidate");
-    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-  };
-  this.unselect = () => {
-    videoContainer.classList.remove("selectedVideo");
-  };
-  this.remove = () => {
-    videoContainer.remove();
-  };
-}
+socket.on("connectionAnswer", ({ from, sdpInfo }) => {
+  console.log("connectionAnswer from: ", from);
+  broadcasterConnections[from].setRemoteDescription(sdpInfo);
+});
 
 socket.on("broadcastAvailable", ({ from }) => {
-  const connection = watcherConnections[from];
-  if (connection) {
-    // already established, so ignore this
+  // already established, so ignore the event
+  if (broadcasterConnections[from]) {
     return;
   }
-  console.log("got a boardcast available event from: ", from);
-  socket.emit("direct", {
-    socketId: from,
-    eventName: "getBroadcast",
-    data: {
-      from: socket.id,
-    },
-  });
-  watcherConnections[from] = new Stream(from);
+  console.log("Broadcast Available event... creating a broadcaster");
+  broadcasterConnections[from] = new Broadcaster(from);
 });
 
 socket.on("sdpInfo", ({ from, sdpInfo }) => {
-  const stream = watcherConnections[from];
-  stream.setRemoteSDP(sdpInfo);
+  console.log("a viewer wants my broadcast! creating a Viewer Peer", from);
+  viewerConnections[from] = new Viewer(from, sdpInfo);
 });
 
-socket.on("broadcasterIceCandidate", ({ from, candidate }) => {
-  const stream = watcherConnections[from];
-  stream.addIceCandidate(candidate);
+socket.on("iceCandidate", ({ from, candidate, eventDestination }) => {
+  if (eventDestination === "broadCaster") {
+    viewerConnections[from].addIceCandidate(candidate);
+  } else {
+    broadcasterConnections[from].addIceCandidate(candidate);
+  }
 });
 
 socket.on("connectionDestroyed", ({ socketId }) => {
   console.log(`${socketId} left the room`);
-  if (watcherConnections[socketId]) {
-    watcherConnections[socketId].remove();
-    delete watcherConnections[socketId];
+  if (broadcasterConnections[socketId]) {
+    broadcasterConnections[socketId].remove();
+    delete broadcasterConnections[socketId];
+  }
+  if (viewerConnections[socketId]) {
+    viewerConnections[socketId].remove();
+    delete viewerConnections[socketId];
   }
 });
