@@ -1,141 +1,164 @@
-const peerConfig = {
-  iceServers: [
-    {
-      urls: ["stun:stun.l.google.com:19302"],
-    },
-  ],
+const root = document.querySelector("#root");
+
+const lowerCasePath = window.location.pathname.toLowerCase().split("/");
+
+const getNameSpace = () => {
+  const pathName = lowerCasePath
+    .filter((e) => e.trim() && e !== "screenshare")
+    .join("_");
+  const hostName = window.location.hostname.split(".").join("_").toLowerCase();
+  return `${hostName}_${pathName}`;
 };
 
-const rootElement = document.querySelector("#root");
+const getScreenshareUrl = () => {
+  let screenSharePath = `/${lowerCasePath.filter((e) => e !== "")}/screenshare`;
 
-navigator.mediaDevices
-  .getUserMedia({ video: true, audio: true })
-  .then((stream) => {
-    const localVideo = document.getElementById("local-video");
-    if (localVideo) {
-      localVideo.srcObject = stream;
-    }
-    socket.emit("broadcast", {
-      eventName: "webrtc-start-app",
-      data: {
-        from: socket.id,
-      },
-    });
+  // in the event that there is no room name
+  if (screenSharePath === "//screenshare") screenSharePath = "/screenshare";
+  return screenSharePath;
+};
+
+document
+  .querySelector("#screenShareUrl")
+  .setAttribute("href", getScreenshareUrl());
+
+const socket = io(`https://realtime.songz.dev/${getNameSpace()}`);
+
+const sendBroadcast = () => {
+  console.log("sending broadcast");
+  socket.emit("broadcast", {
+    eventName: "broadcastAvailable",
+    data: {
+      from: socket.id,
+    },
+  });
+  setTimeout(sendBroadcast, 5000);
+};
+
+const viewerConnections = {};
+
+const broadcasterConnections = {};
+
+function Viewer(remoteSocketId, sdpInfo) {
+  const stream = localVideo.srcObject;
+
+  Helpers.setupLogger(this, "Viewer");
+  Helpers.setupPeerConnection(this);
+  this.setupViewer(remoteSocketId, sdpInfo, {
+    onsuccess: () => {
+      stream.getTracks().forEach((track) => {
+        this.pc.addTrack(track, stream);
+      });
+    },
   });
 
-const socket = io("https://realtime.songz.dev/webrtc_songz_dev");
-socket.on("connectionCreated", ({ socketId }) => {
-  allSockets[socketId] = new User(socketId);
-});
+  this.addIceCandidate = (candidate) => {
+    this.log("adding ice candidate");
+    this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+  };
 
-const peerConnections = {};
-socket.on("watcher", ({ from }) => {
-  const peerConnection = new RTCPeerConnection(config);
-  const id = from;
-  peerConnections[id] = peerConnection;
-
-  let stream = video.srcObject;
-  stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
-
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit("candidate", id, event.candidate);
+  this.remove = () => {
+    try {
+      this.pc.close();
+    } catch (e) {
+      this.errorLog(e);
     }
-  };
-
-  peerConnection
-    .createOffer()
-    .then((sdp) => peerConnection.setLocalDescription(sdp))
-    .then(() => {
-      socket.emit("offer", id, peerConnection.localDescription);
-    });
-});
-
-socket.on("answer", (id, description) => {
-  peerConnections[id].setRemoteDescription(description);
-});
-
-socket.on("candidate", (id, candidate) => {
-  peerConnections[id].addIceCandidate(new RTCIceCandidate(candidate));
-});
-
-window.onunload = window.onbeforeunload = () => {
-  socket.close();
-};
-
-/*
-function User(socketId) {
-  const container = document.createElement("div");
-  container.innerHTML = `
-    <h2>${socketId}</h2>
-    <video></video>
-  `;
-  const $video = container.querySelector("video");
-
-  const peerConnection = new RTCPeerConnection(peerConfig);
-
-  const startConnection = async () => {
-    localStream
-      .getTracks()
-      .forEach((track) => peerConnection.addTrack(track, localStream));
-
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("direct", {
-          socketId,
-          data: { candidate: event.candidate, from: socket.id },
-          eventName: "candidateCreated",
-        });
-      }
-    };
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(new RTCSessionDescription(offer));
-
-    socket.emit("direct", {
-      socketId,
-      data: { offer, from: socket.id },
-      eventName: "offerCreated",
-    });
-
-    peerConnection.ontrack = ({ streams: [stream] }) => {
-      console.log("received remote video");
-      $video.srcObject = stream;
-    };
-  };
-  startConnection();
-
-  this.setupAnswer = async (answer) => {
-    await peerConnection.setRemoteDescription(
-      new RTCSessionDescription(answer)
-    );
+    delete viewerConnections[remoteSocketId];
   };
 }
 
-const allSockets = {};
-socket.on("connect", () => {});
+function Broadcaster(remoteSocketId) {
+  Helpers.setupLogger(this, "Broadcaster");
+  Helpers.setupPeerConnection(this);
+  this.setupBroadcaster(remoteSocketId);
 
-socket.on("offerCreated", async ({ from, offer }) => {
-  console.log("received offer start", from);
-  const peerConnection = new RTCPeerConnection(peerConfig);
+  const videoContainer = document.createElement("div");
+  videoContainer.classList.add("videoContainer");
 
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(new RTCSessionDescription(answer));
+  const video = document.createElement("video");
+  videoContainer.append(video);
+  videoContainer.onclick = () => {
+    if (videoContainer.classList.contains("selectedVideo")) {
+      return videoContainer.classList.remove("selectedVideo");
+    }
+    Object.values(broadcasterConnections).forEach((wc) => wc.unselect());
+    videoContainer.classList.add("selectedVideo");
+  };
+  video.setAttribute("autoplay", "true");
 
-  socket.emit("direct", {
-    eventName: "answerCreated",
-    data: {
-      from: socket.id,
-      answer,
-    },
-  });
+  this.pc.ontrack = (event) => {
+    this.log("track received");
+    video.srcObject = event.streams[0];
+    this.log("event.streams.length", event.streams.length);
+  };
+
+  this.setRemoteDescription = (sdpInfo) => {
+    this.log("sdpInfo Received, local and remote peer config complete");
+    this.pc.setRemoteDescription(sdpInfo);
+  };
+
+  this.addIceCandidate = (candidate) => {
+    this.log("adding ice candidate");
+    this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+  };
+  this.unselect = () => {
+    videoContainer.classList.remove("selectedVideo");
+  };
+  this.remove = () => {
+    try {
+      videoContainer.remove();
+      this.pc.close();
+    } catch (e) {
+      this.errorLog(e);
+    }
+    delete broadcasterConnections[remoteSocketId];
+  };
+  root.append(videoContainer);
+}
+
+const localVideo = document.querySelector("#broadcastVideo");
+navigator.mediaDevices
+  .getUserMedia({ video: true, audio: true })
+  .then((stream) => {
+    localVideo.srcObject = stream;
+    sendBroadcast();
+  })
+  .catch((error) => console.error(error));
+
+socket.on("connectionAnswer", ({ from, sdpInfo }) => {
+  console.log("connectionAnswer from: ", from);
+  broadcasterConnections[from].setRemoteDescription(sdpInfo);
 });
 
-socket.on("answerCreated", ({ from, answer }) => {
-  allSockets[from].setupAnswer(answer);
+socket.on("broadcastAvailable", ({ from }) => {
+  // already established, so ignore the event
+  if (!from || broadcasterConnections[from]) {
+    return;
+  }
+  console.log("Broadcast Available event... creating a broadcaster");
+  broadcasterConnections[from] = new Broadcaster(from);
 });
 
-socket.on("candidateCreated", ({ from, answer }) => {
-  allSockets[from].setupAnswer(answer);
+socket.on("sdpInfo", ({ from, sdpInfo }) => {
+  if (!from) return;
+  console.log("a viewer wants my broadcast! creating a Viewer Peer", from);
+  viewerConnections[from] = new Viewer(from, sdpInfo);
 });
-*/
+
+socket.on("iceCandidate", ({ from, candidate, eventDestination }) => {
+  if (eventDestination === "broadcaster") {
+    broadcasterConnections[from].addIceCandidate(candidate);
+  } else {
+    viewerConnections[from].addIceCandidate(candidate);
+  }
+});
+
+socket.on("connectionDestroyed", ({ socketId }) => {
+  console.log(`${socketId} left the room. Cleaning up`);
+  if (broadcasterConnections[socketId]) {
+    broadcasterConnections[socketId].remove();
+  }
+  if (viewerConnections[socketId]) {
+    viewerConnections[socketId].remove();
+  }
+});
