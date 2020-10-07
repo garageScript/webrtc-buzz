@@ -18,9 +18,19 @@ const getScreenshareUrl = () => {
   return screenSharePath;
 };
 
-document
-  .querySelector("#screenShareUrl")
-  .setAttribute("href", getScreenshareUrl());
+const screenShares = [];
+document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
+  screenShares.push(
+    new Screenshare((stream) => {
+      // Update existing viewers
+      Object.values(viewerConnections).forEach((viewer) => {
+        viewer.addStream(stream);
+      });
+    })
+  );
+  e.preventDefault();
+  return false;
+});
 
 const socket = io(`https://realtime.songz.dev/${getNameSpace()}`);
 
@@ -41,13 +51,23 @@ const broadcasterConnections = {};
 
 function Viewer(remoteSocketId, sdpInfo) {
   const stream = localVideo.srcObject;
+  let isReady = false;
 
   Helpers.setupLogger(this, "Viewer");
   Helpers.setupPeerConnection(this);
   this.setupViewer(remoteSocketId, sdpInfo, {
     onsuccess: () => {
+      isReady = true;
       stream.getTracks().forEach((track) => {
         this.pc.addTrack(track, stream);
+      });
+      screenShares.forEach((ss) => {
+        const ssStream = ss.getStream();
+        // not ready yet
+        if (!ssStream) return;
+        ssStream.getTracks().forEach((track) => {
+          this.pc.addTrack(track, ssStream);
+        });
       });
     },
   });
@@ -65,13 +85,15 @@ function Viewer(remoteSocketId, sdpInfo) {
     }
     delete viewerConnections[remoteSocketId];
   };
+
+  this.addStream = (ssStream) => {
+    ssStream.getTracks().forEach((track) => {
+      this.pc.addTrack(track, ssStream);
+    });
+  };
 }
 
-function Broadcaster(remoteSocketId) {
-  Helpers.setupLogger(this, "Broadcaster");
-  Helpers.setupPeerConnection(this);
-  this.setupBroadcaster(remoteSocketId);
-
+function Stream(stream) {
   const videoContainer = document.createElement("div");
   videoContainer.classList.add("videoContainer");
 
@@ -84,11 +106,31 @@ function Broadcaster(remoteSocketId) {
     Object.values(broadcasterConnections).forEach((wc) => wc.unselect());
     videoContainer.classList.add("selectedVideo");
   };
+  video.srcObject = stream;
   video.setAttribute("autoplay", "true");
+  root.append(videoContainer);
+  this.remove = () => {
+    videoContainer.remove();
+  };
+  this.unselect = () => {
+    videoContainer.classList.remove("selectedVideo");
+  };
+}
 
+function Broadcaster(remoteSocketId) {
+  Helpers.setupLogger(this, "Broadcaster");
+  Helpers.setupPeerConnection(this);
+  this.setupBroadcaster(remoteSocketId);
+
+  let streams = {};
   this.pc.ontrack = (event) => {
     this.log("track received");
-    video.srcObject = event.streams[0];
+    event.streams.forEach((stream) => {
+      if (streams[stream.id]) {
+        return;
+      }
+      streams[stream.id] = new Stream(stream);
+    });
     this.log("event.streams.length", event.streams.length);
   };
 
@@ -102,18 +144,18 @@ function Broadcaster(remoteSocketId) {
     this.pc.addIceCandidate(new RTCIceCandidate(candidate));
   };
   this.unselect = () => {
-    videoContainer.classList.remove("selectedVideo");
+    Object.values(streams).forEach((s) => s.unselect());
   };
   this.remove = () => {
+    this.log("Removing broadcaster");
     try {
-      videoContainer.remove();
+      Object.values(streams).forEach((s) => s.remove());
       this.pc.close();
     } catch (e) {
       this.errorLog(e);
     }
     delete broadcasterConnections[remoteSocketId];
   };
-  root.append(videoContainer);
 }
 
 const localVideo = document.querySelector("#broadcastVideo");
