@@ -1,23 +1,5 @@
 const root = document.querySelector("#root");
 
-const lowerCasePath = window.location.pathname.toLowerCase().split("/");
-
-const getNameSpace = () => {
-  const pathName = lowerCasePath
-    .filter((e) => e.trim() && e !== "screenshare")
-    .join("_");
-  const hostName = window.location.hostname.split(".").join("_").toLowerCase();
-  return `${hostName}_${pathName}`;
-};
-
-const getScreenshareUrl = () => {
-  let screenSharePath = `/${lowerCasePath.filter((e) => e !== "")}/screenshare`;
-
-  // in the event that there is no room name
-  if (screenSharePath === "//screenshare") screenSharePath = "/screenshare";
-  return screenSharePath;
-};
-
 const screenShares = [];
 document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
   screenShares.push(
@@ -32,7 +14,7 @@ document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
   return false;
 });
 
-const socket = io(`https://realtime.songz.dev/${getNameSpace()}`);
+const socket = io(`https://realtime.songz.dev/${Helpers.getNameSpace()}`);
 
 const sendBroadcast = () => {
   console.log("sending broadcast");

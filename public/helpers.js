@@ -21,6 +21,16 @@ const Helpers = {};
 
 Helpers.wait = wait;
 
+Helpers.getNameSpace = () => {
+  const lowerCasePath = window.location.pathname.toLowerCase().split("/");
+
+  const pathName = lowerCasePath
+    .filter((e) => e.trim() && e !== "screenshare")
+    .join("_");
+  const hostName = window.location.hostname.split(".").join("_").toLowerCase();
+  return `${hostName}_${pathName}`;
+};
+
 Helpers.setupLogger = (obj, label) => {
   obj.log = (...data) => {
     console.log(label, ...data);
