@@ -35,10 +35,15 @@ function Viewer(remoteSocketId, sdpInfo) {
   const stream = localVideo.srcObject;
   let isReady = false;
 
-  Helpers.setupLogger(this, "Viewer");
+  Helpers.setupLogger(this, "Viewer", remoteSocketId);
   Helpers.setupPeerConnection(this);
+  this.log("setting up viewer");
+
   this.setupViewer(remoteSocketId, sdpInfo, {
     onsuccess: () => {
+      this.log(
+        "setupViewer SUCCESS! - adding video/audio streams and screenshare streams to peer connection"
+      );
       isReady = true;
       stream.getTracks().forEach((track) => {
         this.pc.addTrack(track, stream);
@@ -55,11 +60,11 @@ function Viewer(remoteSocketId, sdpInfo) {
   });
 
   this.addIceCandidate = (candidate) => {
-    this.log("adding ice candidate");
     this.pc.addIceCandidate(new RTCIceCandidate(candidate));
   };
 
   this.remove = () => {
+    this.log("closing peer connection and deleting viewConnection object");
     try {
       this.pc.close();
     } catch (e) {
@@ -69,6 +74,7 @@ function Viewer(remoteSocketId, sdpInfo) {
   };
 
   this.addStream = (ssStream) => {
+    this.log("adding new stream");
     ssStream.getTracks().forEach((track) => {
       this.pc.addTrack(track, ssStream);
     });
@@ -100,36 +106,38 @@ function Stream(stream) {
 }
 
 function Broadcaster(remoteSocketId) {
-  Helpers.setupLogger(this, "Broadcaster");
+  Helpers.setupLogger(this, "Broadcaster", remoteSocketId);
   Helpers.setupPeerConnection(this);
   this.setupBroadcaster(remoteSocketId);
+  this.log("setting up broadcaster");
 
   let streams = {};
   this.pc.ontrack = (event) => {
-    this.log("track received");
+    this.log(`PCEvent:ontrack - ${event.streams.length} streams`);
     event.streams.forEach((stream) => {
       if (streams[stream.id]) {
         return;
       }
+      this.log(`Creating a new stream object`);
       streams[stream.id] = new Stream(stream);
     });
-    this.log("event.streams.length", event.streams.length);
   };
 
   this.setRemoteDescription = (sdpInfo) => {
-    this.log("sdpInfo Received, local and remote peer config complete");
+    this.log("setting remote description for peer connection based on sdpInfo");
     this.pc.setRemoteDescription(sdpInfo);
   };
 
   this.addIceCandidate = (candidate) => {
-    this.log("adding ice candidate");
     this.pc.addIceCandidate(new RTCIceCandidate(candidate));
   };
   this.unselect = () => {
     Object.values(streams).forEach((s) => s.unselect());
   };
   this.remove = () => {
-    this.log("Removing broadcaster");
+    this.log(
+      "removing all streams, removing broadcaster object, and closing peer connection"
+    );
     try {
       Object.values(streams).forEach((s) => s.remove());
       this.pc.close();
@@ -151,7 +159,7 @@ navigator.mediaDevices
   .catch((error) => console.error(error));
 
 socket.on("connectionAnswer", ({ from, sdpInfo }) => {
-  debug.log(`Received - ConnectionAnswer`, from);
+  debug.log(`ReceivedSocketEvent - ConnectionAnswer`, from);
   broadcasterConnections[from].setRemoteDescription(sdpInfo);
 });
 
@@ -160,28 +168,37 @@ socket.on("broadcastAvailable", ({ from }) => {
   if (!from || broadcasterConnections[from]) {
     return;
   }
-  debug.log("Received - broadcastAvailable", from);
+  debug.log(
+    "ReceivedSocketEvent - broadcastAvailable and creating a broadcaster object",
+    from
+  );
   broadcasterConnections[from] = new Broadcaster(from);
 });
 
 socket.on("sdpInfo", ({ from, sdpInfo }) => {
   if (!from) return;
-  debug.log("Received - sdpInfo", from);
+  debug.log("ReceivedSocketEvent - sdpInfo", from);
   viewerConnections[from] = new Viewer(from, sdpInfo);
 });
 
 socket.on("iceCandidate", ({ from, candidate, eventDestination }) => {
   if (eventDestination === "broadcaster") {
-    debug.log("Received - iceCandidate from broadcaster", from);
+    debug.log(
+      "ReceivedSocketEvent - iceCandidate from broadcaster and adding ice candidate to peer connection",
+      from
+    );
     broadcasterConnections[from].addIceCandidate(candidate);
   } else {
-    debug.log("Received - iceCandidate from viewer", from);
+    debug.log(
+      "ReceivedSocketEvent - iceCandidate from viewer and adding ice candidate to peer connection",
+      from
+    );
     viewerConnections[from].addIceCandidate(candidate);
   }
 });
 
 socket.on("connectionDestroyed", ({ socketId }) => {
-  debug.log(`Received - connectionDestroyed`, socketId);
+  debug.log(`ReceivedSocketEvent - connectionDestroyed`, socketId);
   if (broadcasterConnections[socketId]) {
     broadcasterConnections[socketId].remove();
   }
