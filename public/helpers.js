@@ -1,11 +1,14 @@
 const peerConfig = {
   iceServers: [
+    { url: "stun:stun.l.google.com:19302" },
+    { url: "stun:stun.stunprotocol.org:3478" },
     {
-      urls: [
-        "stun:stun.l.google.com:19302",
-        "turn:webrtc.songz.dev:3478?transport=udp",
-        "turn:webrtc.songz.dev:3478?transport=tcp",
-      ],
+      url: "turn:webrtc.songz.dev:3478?transport=udp",
+      username: "c0d3_student",
+      credential: "c0d3s_really_hard",
+    },
+    {
+      url: "turn:webrtc.songz.dev:3478?transport=tcp",
       username: "c0d3_student",
       credential: "c0d3s_really_hard",
     },
@@ -17,6 +20,16 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const Helpers = {};
 
 Helpers.wait = wait;
+
+Helpers.getNameSpace = () => {
+  const lowerCasePath = window.location.pathname.toLowerCase().split("/");
+
+  const pathName = lowerCasePath
+    .filter((e) => e.trim() && e !== "screenshare")
+    .join("_");
+  const hostName = window.location.hostname.split(".").join("_").toLowerCase();
+  return `${hostName}_${pathName}`;
+};
 
 Helpers.setupLogger = (obj, label) => {
   obj.log = (...data) => {
@@ -30,13 +43,7 @@ Helpers.setupLogger = (obj, label) => {
 Helpers.setupPeerConnection = (parent) => {
   let isLive = false;
   let signaling;
-  const peerConnection = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: ["stun:stun.l.google.com:19302"],
-      },
-    ],
-  });
+  const peerConnection = new RTCPeerConnection(peerConfig);
 
   const signalOnMessageHandler = (e) => {
     return wait(0)
