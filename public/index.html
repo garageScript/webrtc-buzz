@@ -1,3 +1,5 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chroma-js/2.1.0/chroma.min.js" integrity="sha512-yocoLferfPbcwpCMr8v/B0AB4SWpJlouBwgE0D3ZHaiP1nuu5djZclFEIj9znuqghaZ3tdCMRrreLoM8km+jIQ==" crossorigin="anonymous"></script>
+<div id="bodyContainer">
 <div id="broadcastVideoContainer">
   <video id="broadcastVideo" autoplay muted></video>
   <div style="text-align:center">
@@ -6,14 +8,63 @@
   </div>
 </div>
 <div id="root"></div>
+</div>
+<div id="debuggerContainer">
+  <h1>Debugger</h1>
+  <div id="userList">
+  </div>
+  <div id="logsContainer"></div>
+</div>
 <script src="https://realtime.songz.dev/socket.io/socket.io.js"></script> 
+<script src="/debugger.js"></script>
 <script src="/helpers.js"></script>
 <script src="/screenshare.js"></script>
 <script src="/app.js"></script>
 
 <style>
-#broadcastVideoContainer {
+#debuggerContainer {
   position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 300px;
+  right: -300px;
+  transition: right 0.5s;
+  background-color: rgba(200,200,200, 0.3);
+  padding: 10px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+#debuggerContainer p {
+  font-size: 0.8em;
+}
+.userPill {
+  border-radius: 50%;
+  text-align:center;
+  box-sizing:border-box;
+  width: 32px;
+  height: 32px;
+  padding-top: 5px;
+  cursor: pointer;
+  display: inline-block;
+  margin: 2px;
+  opacity: 0.7;
+}
+
+.userPill.selected {
+  opacity: 1;
+  border: 1px solid rgba(0,0,0,0.5);
+}
+
+#bodyContainer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  transition: right 0.5s;
+}
+#broadcastVideoContainer {
+  position: absolute;
   bottom: 5px;
   right: 5px;
   width: 160px;
@@ -32,7 +83,7 @@
 }
 
 #root {
-  position: fixed;
+  position: absolute;
   z-index: 2;
   background-color: #ccc;
   overflow: auto;

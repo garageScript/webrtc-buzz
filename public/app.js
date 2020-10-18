@@ -17,7 +17,7 @@ document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
 const socket = io(`https://realtime.songz.dev/${Helpers.getNameSpace()}`);
 
 const sendBroadcast = () => {
-  console.log("sending broadcast");
+  debug.log("sending broadcast to tell everyone I have video!");
   socket.emit("broadcast", {
     eventName: "broadcastAvailable",
     data: {
@@ -145,12 +145,13 @@ navigator.mediaDevices
   .getUserMedia({ video: true, audio: true })
   .then((stream) => {
     localVideo.srcObject = stream;
+    debug.log("retrieved webcam & mic");
     sendBroadcast();
   })
   .catch((error) => console.error(error));
 
 socket.on("connectionAnswer", ({ from, sdpInfo }) => {
-  console.log("connectionAnswer from: ", from);
+  debug.log(`Received - ConnectionAnswer`, from);
   broadcasterConnections[from].setRemoteDescription(sdpInfo);
 });
 
@@ -159,26 +160,28 @@ socket.on("broadcastAvailable", ({ from }) => {
   if (!from || broadcasterConnections[from]) {
     return;
   }
-  console.log("Broadcast Available event... creating a broadcaster");
+  debug.log("Received - broadcastAvailable", from);
   broadcasterConnections[from] = new Broadcaster(from);
 });
 
 socket.on("sdpInfo", ({ from, sdpInfo }) => {
   if (!from) return;
-  console.log("a viewer wants my broadcast! creating a Viewer Peer", from);
+  debug.log("Received - sdpInfo", from);
   viewerConnections[from] = new Viewer(from, sdpInfo);
 });
 
 socket.on("iceCandidate", ({ from, candidate, eventDestination }) => {
   if (eventDestination === "broadcaster") {
+    debug.log("Received - iceCandidate from broadcaster", from);
     broadcasterConnections[from].addIceCandidate(candidate);
   } else {
+    debug.log("Received - iceCandidate from viewer", from);
     viewerConnections[from].addIceCandidate(candidate);
   }
 });
 
 socket.on("connectionDestroyed", ({ socketId }) => {
-  console.log(`${socketId} left the room. Cleaning up`);
+  debug.log(`Received - connectionDestroyed`, socketId);
   if (broadcasterConnections[socketId]) {
     broadcasterConnections[socketId].remove();
   }
