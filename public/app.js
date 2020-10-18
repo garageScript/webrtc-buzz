@@ -4,7 +4,9 @@ reportProblem.onclick = () => {
   const problem = prompt(
     "Sorry to hear about your issue. Briefly describe what problem you see, then press enter."
   );
-  debug.sendLog(problem);
+  if (problem && problem.length > 5) {
+    debug.sendLog(problem);
+  }
 };
 
 const screenShares = [];
@@ -132,4 +134,8 @@ navigator.mediaDevices
       }
     }, 3000);
   })
-  .catch((error) => console.error(error));
+  .catch(() => {
+    alert(
+      "cannot access you hardware for some reason. Please refresh the page"
+    );
+  });
