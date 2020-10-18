@@ -158,4 +158,4 @@ debug.sendLog = (problem) => {
     });
 };
 
-setTimeout(debug.start, 500);
+//setTimeout(debug.start, 500);
