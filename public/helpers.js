@@ -1,14 +1,13 @@
 const peerConfig = {
   iceServers: [
-    { url: "stun:stun.l.google.com:19302" },
-    { url: "stun:stun.stunprotocol.org:3478" },
     {
-      url: "turn:webrtc.songz.dev:3478?transport=udp",
-      username: "c0d3_student",
-      credential: "c0d3s_really_hard",
+      urls: ["stun:stun.l.google.com:19302", "stun:stun.stunprotocol.org:3478"],
     },
     {
-      url: "turn:webrtc.songz.dev:3478?transport=tcp",
+      urls: [
+        "turn:webrtc.songz.dev:3478?transport=udp",
+        "turn:webrtc.songz.dev:3478?transport=tcp",
+      ],
       username: "c0d3_student",
       credential: "c0d3s_really_hard",
     },
@@ -31,29 +30,26 @@ Helpers.getNameSpace = () => {
   return `${hostName}_${pathName}`;
 };
 
-Helpers.setupLogger = (obj, label) => {
-  obj.log = (...data) => {
-    console.log(label, ...data);
+function Peer(remoteSocketId, sdpInfo) {
+  const log = (msg) => {
+    debug.log(`Peer-${msg}`, remoteSocketId);
   };
-  obj.errorLog = (...data) => {
-    console.error(label, ...data);
+  const errLog = (msg) => {
+    debug.log(`PeerERROR-${msg}`, remoteSocketId);
   };
-};
-
-Helpers.setupPeerConnection = (parent) => {
-  let isLive = false;
-  let signaling;
   const peerConnection = new RTCPeerConnection(peerConfig);
 
   const signalOnMessageHandler = (e) => {
+    log(`Signaling message handler`);
     return wait(0)
       .then(() => {
         const msg = JSON.parse(e.data);
-        parent.log(`signaling: message received`);
         if (msg.sdp) {
-          parent.log(`signaling: sdp`);
-          var desc = new RTCSessionDescription(JSON.parse(e.data).sdp);
+          const desc = new RTCSessionDescription(JSON.parse(e.data).sdp);
           if (desc.type == "offer") {
+            log(
+              `PC:signaling: sdp message is an offer - setting remote description, creating answer, then setting localDescription to answer`
+            );
             peerConnection
               .setRemoteDescription(desc)
               .then(() => peerConnection.createAnswer())
@@ -63,53 +59,54 @@ Helpers.setupPeerConnection = (parent) => {
                   JSON.stringify({ sdp: peerConnection.localDescription })
                 );
               })
-              .catch(parent.errorLog);
+              .catch(errLog);
           } else {
-            peerConnection.setRemoteDescription(desc).catch(parent.errorLog);
+            log(
+              `PC:signaling: sdp message is not an offer - setting remote description`
+            );
+            peerConnection.setRemoteDescription(desc).catch(errLog);
           }
         }
       })
-      .catch(parent.errorLog);
+      .catch(errLog);
   };
 
-  peerConnection.onclose = () => {
-    parent.log("Connection closed");
-    parent.remove();
-  };
+  let isLive = false;
+  const startSendingMedia = () => {
+    isLive = true;
 
-  let negotiating; // Chrome workaround
-  peerConnection.onnegotiationneeded = () => {
-    parent.log("negotiations needed", negotiating);
-    if (negotiating) return;
-    negotiating = true;
-    peerConnection
-      .createOffer()
-      .then((d) => peerConnection.setLocalDescription(d))
-      .then(
-        () =>
-          isLive &&
-          signaling.send(
-            JSON.stringify({ sdp: peerConnection.localDescription })
-          )
-      )
-      .catch(parent.errorLog);
-  };
-  peerConnection.onsignalingstatechange = () => {
-    negotiating = peerConnection.signalingState != "stable";
-    parent.log(
-      `signaling State: ${peerConnection.signalingState}, resulting negotiating state is`,
-      negotiating
+    log(
+      "setupViewer SUCCESS! - adding video/audio streams and screenshare streams to peer connection"
     );
+    const stream = localVideo.srcObject;
+    stream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, stream);
+    });
+    screenShares.forEach((ss) => {
+      const ssStream = ss.getStream();
+      // not ready yet
+      if (!ssStream) return;
+      ssStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, ssStream);
+      });
+    });
   };
 
-  parent.pc = peerConnection;
-
-  parent.setupViewer = (remoteSocketId, sdpInfo, { onsuccess }) => {
+  let isInitiator = true;
+  // Used for sending renegotiation data
+  let signaling;
+  if (sdpInfo) {
+    log(
+      `new Peer - not initiator, so setting remote description based on sdp, creating answer and setting the answer as local description and send answer oversocket. Peer has local and remote!`
+    );
+    isInitiator = false;
     peerConnection
       .setRemoteDescription(sdpInfo)
       .then(() => peerConnection.createAnswer())
       .then((sdp) => peerConnection.setLocalDescription(sdp))
       .then(() => {
+        // Not exactly live yet, live is when the other peer has finished setting up remote description
+        // But its close enough, hopefully it doesn't cause issues
         return socket.emit("direct", {
           socketId: remoteSocketId,
           eventName: "connectionAnswer",
@@ -119,47 +116,25 @@ Helpers.setupPeerConnection = (parent) => {
           },
         });
       });
-
-    peerConnection.onicecandidate = (event) => {
-      parent.log("onicecandidate");
-      if (!event.candidate) return;
-      return socket.emit("direct", {
-        socketId: remoteSocketId,
-        eventName: "iceCandidate",
-        data: {
-          eventDestination: "broadcaster",
-          from: socket.id,
-          candidate: event.candidate,
-        },
-      });
-    };
-
     peerConnection.ondatachannel = (e) => {
-      parent.log("live, setting signaling and sending track");
+      log("PC:ondatachannel event, signaling is open, isLive = true");
       if (!signaling) {
         signaling = e.channel;
         signaling.onmessage = signalOnMessageHandler;
+        log(
+          "PC:ondatachannel - no signaling, so setting signaling to channel and onmessagehandler"
+        );
       }
-      isLive = true;
-      onsuccess();
+      startSendingMedia();
     };
-  };
-
-  parent.setupBroadcaster = (remoteSocketId) => {
-    signaling = peerConnection.createDataChannel("signaling");
-    signaling.onmessage = signalOnMessageHandler;
-
-    signaling.onopen = () => {
-      parent.log("signaling open, went live");
-      isLive = true;
-    };
-
-    let sentSdp = false;
-    peerConnection.onicecandidate = (event) => {
-      parent.log("onicecandidate");
-      if (!sentSdp) {
-        sentSdp = true;
-        parent.log("sending SDP Info");
+  } else {
+    log(
+      `new Peer - initiator, so create offer, set local description, and send sdp information over socket. Initiator creates the signaling!`
+    );
+    peerConnection
+      .createOffer()
+      .then((d) => peerConnection.setLocalDescription(d))
+      .then(() => {
         return socket.emit("direct", {
           eventName: "sdpInfo",
           socketId: remoteSocketId,
@@ -168,20 +143,110 @@ Helpers.setupPeerConnection = (parent) => {
             from: socket.id,
           },
         });
-      }
-      if (!event.candidate) {
-        return parent.errorLog("not live an no candidate, should not happen");
-      }
-      parent.log("---sending signaling info---");
-      return socket.emit("direct", {
-        socketId: remoteSocketId,
-        eventName: "iceCandidate",
-        data: {
-          eventDestination: "viewer",
-          from: socket.id,
-          candidate: event.candidate,
-        },
-      });
+      })
+      .catch(errLog);
+    // setting up signaling - Only done by the Initiator
+    signaling = peerConnection.createDataChannel("signaling");
+    signaling.onmessage = signalOnMessageHandler;
+    signaling.onopen = () => {
+      log("PC:signaling is open, isLive = true");
+      startSendingMedia();
     };
+  }
+
+  /* About ice candidates:
+   * ICE candidates start firing from a peer as soon as the peer's setLocalDescription's success callback has completed, which means your signaling channel - provided it preserves order - looks like this: offer, candidate, candidate, candidate, one way, and answer, candidate, candidate, candidate the other. Basically, if you see a candidate, add it!
+   */
+  peerConnection.onicecandidate = (event) => {
+    if (!event.candidate) {
+      log("PC:onicecandidate - no candidate, ignoring event");
+      return;
+    }
+    log("PC:onicecandidate - sending candidate");
+    return socket.emit("direct", {
+      socketId: remoteSocketId,
+      eventName: "iceCandidate",
+      data: {
+        from: socket.id,
+        candidate: event.candidate,
+      },
+    });
   };
-};
+
+  this.completeConnection = (newSdpInfo) => {
+    log("sdpInfo Received, local and remote peer config complete");
+    peerConnection.setRemoteDescription(newSdpInfo);
+  };
+
+  this.addIceCandidate = (candidate) => {
+    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  };
+
+  let streams = {};
+  peerConnection.ontrack = (event) => {
+    log(`PCEvent:ontrack - ${event.streams.length} streams`);
+    event.streams.forEach((stream) => {
+      if (streams[stream.id]) {
+        return;
+      }
+      log(`Creating a new stream object`);
+      streams[stream.id] = new Stream(stream);
+    });
+  };
+
+  /* Renegotiation
+   * Renegotiation is needed when realtime media streams changes (ie new screenshare is created)
+   * We use our handy dataChannel to renegotiate!
+   */
+  let negotiating; // Chrome workaround
+  peerConnection.onnegotiationneeded = () => {
+    if (negotiating) return;
+    log(
+      "PC:negotiations needed - creating offer and setting localDescription to offer, then sending offer as sdp over peerConnection signal data channel"
+    );
+    negotiating = true;
+    peerConnection
+      .createOffer()
+      .then((d) => peerConnection.setLocalDescription(d))
+      .then(() => {
+        log("PC - finished setting LocalDescription and sending signal");
+        return (
+          isLive &&
+          signaling.send(
+            JSON.stringify({ sdp: peerConnection.localDescription })
+          )
+        );
+      })
+      .catch(errLog);
+  };
+  peerConnection.onsignalingstatechange = () => {
+    negotiating = peerConnection.signalingState != "stable";
+    log(
+      `signaling State: ${peerConnection.signalingState}, resulting negotiating state is ${negotiating}`
+    );
+  };
+
+  this.addStream = (ssStream) => {
+    log("adding new stream");
+    ssStream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, ssStream);
+    });
+  };
+
+  this.unselect = () => {
+    Object.values(streams).forEach((s) => s.unselect());
+  };
+
+  this.remove = () => {
+    log(
+      "removing all streams, removing broadcaster object, and closing peer connection"
+    );
+    try {
+      Object.values(streams).forEach((s) => s.remove());
+      peerConnection.close();
+    } catch (e) {
+      errLog(e);
+    }
+    delete allPeers[remoteSocketId];
+  };
+}

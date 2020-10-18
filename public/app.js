@@ -1,12 +1,19 @@
 const root = document.querySelector("#root");
+const reportProblem = document.querySelector("#reportProblem");
+reportProblem.onclick = () => {
+  const problem = prompt(
+    "Sorry to hear about your issue. Briefly describe what problem you see, then press enter."
+  );
+  debug.sendLog(problem);
+};
 
 const screenShares = [];
 document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
   screenShares.push(
     new Screenshare((stream) => {
       // Update existing viewers
-      Object.values(viewerConnections).forEach((viewer) => {
-        viewer.addStream(stream);
+      Object.values(allPeers).forEach((peer) => {
+        peer.addStream(stream);
       });
     })
   );
@@ -17,7 +24,7 @@ document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
 const socket = io(`https://realtime.songz.dev/${Helpers.getNameSpace()}`);
 
 const sendBroadcast = () => {
-  console.log("sending broadcast");
+  debug.log("sending broadcast to tell everyone I have video!");
   socket.emit("broadcast", {
     eventName: "broadcastAvailable",
     data: {
@@ -26,54 +33,6 @@ const sendBroadcast = () => {
   });
   setTimeout(sendBroadcast, 5000);
 };
-
-const viewerConnections = {};
-
-const broadcasterConnections = {};
-
-function Viewer(remoteSocketId, sdpInfo) {
-  const stream = localVideo.srcObject;
-  let isReady = false;
-
-  Helpers.setupLogger(this, "Viewer");
-  Helpers.setupPeerConnection(this);
-  this.setupViewer(remoteSocketId, sdpInfo, {
-    onsuccess: () => {
-      isReady = true;
-      stream.getTracks().forEach((track) => {
-        this.pc.addTrack(track, stream);
-      });
-      screenShares.forEach((ss) => {
-        const ssStream = ss.getStream();
-        // not ready yet
-        if (!ssStream) return;
-        ssStream.getTracks().forEach((track) => {
-          this.pc.addTrack(track, ssStream);
-        });
-      });
-    },
-  });
-
-  this.addIceCandidate = (candidate) => {
-    this.log("adding ice candidate");
-    this.pc.addIceCandidate(new RTCIceCandidate(candidate));
-  };
-
-  this.remove = () => {
-    try {
-      this.pc.close();
-    } catch (e) {
-      this.errorLog(e);
-    }
-    delete viewerConnections[remoteSocketId];
-  };
-
-  this.addStream = (ssStream) => {
-    ssStream.getTracks().forEach((track) => {
-      this.pc.addTrack(track, ssStream);
-    });
-  };
-}
 
 function Stream(stream) {
   const videoContainer = document.createElement("div");
@@ -85,7 +44,7 @@ function Stream(stream) {
     if (videoContainer.classList.contains("selectedVideo")) {
       return videoContainer.classList.remove("selectedVideo");
     }
-    Object.values(broadcasterConnections).forEach((wc) => wc.unselect());
+    Object.values(allPeers).forEach((wc) => wc.unselect());
     videoContainer.classList.add("selectedVideo");
   };
   video.srcObject = stream;
@@ -99,90 +58,78 @@ function Stream(stream) {
   };
 }
 
-function Broadcaster(remoteSocketId) {
-  Helpers.setupLogger(this, "Broadcaster");
-  Helpers.setupPeerConnection(this);
-  this.setupBroadcaster(remoteSocketId);
+const allPeers = {};
 
-  let streams = {};
-  this.pc.ontrack = (event) => {
-    this.log("track received");
-    event.streams.forEach((stream) => {
-      if (streams[stream.id]) {
-        return;
-      }
-      streams[stream.id] = new Stream(stream);
-    });
-    this.log("event.streams.length", event.streams.length);
-  };
+const startApp = () => {
+  sendBroadcast();
+  socket.on("connectionAnswer", ({ from, sdpInfo }) => {
+    debug.log(`ReceivedSocketEvent - ConnectionAnswer`, from);
+    allPeers[from].completeConnection(sdpInfo);
+  });
 
-  this.setRemoteDescription = (sdpInfo) => {
-    this.log("sdpInfo Received, local and remote peer config complete");
-    this.pc.setRemoteDescription(sdpInfo);
-  };
-
-  this.addIceCandidate = (candidate) => {
-    this.log("adding ice candidate");
-    this.pc.addIceCandidate(new RTCIceCandidate(candidate));
-  };
-  this.unselect = () => {
-    Object.values(streams).forEach((s) => s.unselect());
-  };
-  this.remove = () => {
-    this.log("Removing broadcaster");
-    try {
-      Object.values(streams).forEach((s) => s.remove());
-      this.pc.close();
-    } catch (e) {
-      this.errorLog(e);
+  socket.on("broadcastAvailable", ({ from }) => {
+    // already established, so ignore the event
+    if (!from || allPeers[from]) {
+      return;
     }
-    delete broadcasterConnections[remoteSocketId];
-  };
-}
+    debug.log(
+      "ReceivedSocketEvent - broadcastAvailable and creating a broadcaster object",
+      from
+    );
+    allPeers[from] = new Peer(from);
+  });
 
+  socket.on("sdpInfo", ({ from, sdpInfo }) => {
+    if (!from || allPeers[from]) {
+      debug.log(
+        `WIERD state if ${from} is truthy - this is a request to estiablish a new peer connection, so how did a peer connection with the requestor already exist?`
+      );
+
+      return;
+    }
+
+    allPeers[from] = new Peer(from, sdpInfo);
+  });
+
+  socket.on("iceCandidate", ({ from, candidate, eventDestination }) => {
+    debug.log(
+      "ReceivedSocketEvent - iceCandidate adding ice candidate to peer connection",
+      from
+    );
+    allPeers[from].addIceCandidate(candidate);
+  });
+
+  socket.on("connectionDestroyed", ({ socketId }) => {
+    debug.log(`ReceivedSocketEvent - connectionDestroyed for ${socketId}`);
+    if (allPeers[socketId]) {
+      allPeers[socketId].remove();
+    }
+  });
+
+  socket.on("sendDebugger", ({ fileName }) => {
+    debug.sendLogData(fileName);
+  });
+};
+
+let sendingBroadcast = false;
 const localVideo = document.querySelector("#broadcastVideo");
 navigator.mediaDevices
   .getUserMedia({ video: true, audio: true })
   .then((stream) => {
     localVideo.srcObject = stream;
-    sendBroadcast();
+    debug.log("retrieved webcam & mic");
+    // Fire broadcast event only when we are sure there are playable video / audio
+    localVideo.addEventListener("canplay", () => {
+      debug.log("Video can be played now");
+      sendingBroadcast = true;
+      startApp();
+    });
+    setTimeout(() => {
+      // TODO: figure out what causes this intermittent issue
+      if (!sendingBroadcast) {
+        alert("problem playing your mediastream, refreshing the page...");
+        window.location.reload();
+      }
+    }, 3000);
   })
   .catch((error) => console.error(error));
-
-socket.on("connectionAnswer", ({ from, sdpInfo }) => {
-  console.log("connectionAnswer from: ", from);
-  broadcasterConnections[from].setRemoteDescription(sdpInfo);
-});
-
-socket.on("broadcastAvailable", ({ from }) => {
-  // already established, so ignore the event
-  if (!from || broadcasterConnections[from]) {
-    return;
-  }
-  console.log("Broadcast Available event... creating a broadcaster");
-  broadcasterConnections[from] = new Broadcaster(from);
-});
-
-socket.on("sdpInfo", ({ from, sdpInfo }) => {
-  if (!from) return;
-  console.log("a viewer wants my broadcast! creating a Viewer Peer", from);
-  viewerConnections[from] = new Viewer(from, sdpInfo);
-});
-
-socket.on("iceCandidate", ({ from, candidate, eventDestination }) => {
-  if (eventDestination === "broadcaster") {
-    broadcasterConnections[from].addIceCandidate(candidate);
-  } else {
-    viewerConnections[from].addIceCandidate(candidate);
-  }
-});
-
-socket.on("connectionDestroyed", ({ socketId }) => {
-  console.log(`${socketId} left the room. Cleaning up`);
-  if (broadcasterConnections[socketId]) {
-    broadcasterConnections[socketId].remove();
-  }
-  if (viewerConnections[socketId]) {
-    viewerConnections[socketId].remove();
-  }
-});
