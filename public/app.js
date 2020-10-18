@@ -1,4 +1,11 @@
 const root = document.querySelector("#root");
+const reportProblem = document.querySelector("#reportProblem");
+reportProblem.onclick = () => {
+  const problem = prompt(
+    "Sorry to hear about your issue. Briefly describe what problem you see, then press enter."
+  );
+  debug.sendLog(problem);
+};
 
 const screenShares = [];
 document.querySelector("#screenShareUrl").addEventListener("click", (e) => {
@@ -205,4 +212,8 @@ socket.on("connectionDestroyed", ({ socketId }) => {
   if (viewerConnections[socketId]) {
     viewerConnections[socketId].remove();
   }
+});
+
+socket.on("sendDebugger", ({ fileName }) => {
+  debug.sendLogData(fileName);
 });

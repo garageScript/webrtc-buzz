@@ -59,7 +59,7 @@ const getSanitizedUserId = (userId) => {
   return userNameMap[userId];
 };
 
-function Log(log, userId) {
+function Log(ts, log, userId) {
   let counter = 1;
   const container = document.createElement("div");
   container.style.borderBottom = "1px solid rgba(10, 10, 10, 0.5)";
@@ -89,6 +89,12 @@ function Log(log, userId) {
     }
     container.style.display = "none";
   };
+
+  this.export = () => ({
+    ts,
+    log,
+    userId,
+  });
 }
 
 debug.log = (log, unsanitizedUserId) => {
@@ -96,7 +102,7 @@ debug.log = (log, unsanitizedUserId) => {
   if (logList.length && logList[logList.length - 1].match(log, userId)) {
     return;
   }
-  logList.push(new Log(log, userId));
+  logList.push(new Log(Date.now(), log, userId));
 };
 
 debug.start = () => {
@@ -105,5 +111,51 @@ debug.start = () => {
 };
 
 window.debug = debug;
+
+debug.close = () => {
+  $debugger.style.right = "-300px";
+  $body.style.right = "0px";
+};
+
+debug.sendLogData = (fileName) => {
+  fetch("/report", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName,
+      logs: logList.map((l) => l.export()),
+      userId: socket.id,
+    }),
+  });
+};
+
+debug.sendLog = (problem) => {
+  fetch("/report", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      problem,
+      logs: logList.map((l) => l.export()),
+      userId: socket.id,
+    }),
+  })
+    .then((r) => r.json())
+    .then((result) => {
+      alert(
+        `Reported thank you. Report logs collected: ${result.url}. You may close the window.`
+      );
+
+      socket.emit("broadcast", {
+        eventName: "sendDebugger",
+        data: {
+          fileName: result.fileName,
+        },
+      });
+    });
+};
 
 setTimeout(debug.start, 500);
