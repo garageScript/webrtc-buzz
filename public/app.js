@@ -155,13 +155,26 @@ function Broadcaster(remoteSocketId) {
   };
 }
 
+let sendingBroadcast = false;
 const localVideo = document.querySelector("#broadcastVideo");
 navigator.mediaDevices
   .getUserMedia({ video: true, audio: true })
   .then((stream) => {
     localVideo.srcObject = stream;
     debug.log("retrieved webcam & mic");
-    sendBroadcast();
+    // Fire broadcast event only when we are sure there are playable video / audio
+    localVideo.addEventListener("canplay", () => {
+      debug.log("Video can be played now");
+      sendingBroadcast = true;
+      sendBroadcast();
+    });
+    setTimeout(() => {
+      // TODO: figure out what causes this intermittent issue
+      if (!sendingBroadcast) {
+        alert("problem playing your mediastream, refreshing the page...");
+        window.location.reload();
+      }
+    }, 3000);
   })
   .catch((error) => console.error(error));
 
