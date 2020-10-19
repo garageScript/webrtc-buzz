@@ -15,16 +15,16 @@ Visit demo at [webrtc.buzz](https://webrtc.buzz)
 * `node index.js` - Then visit your app at the specified port. 
 
 # Basic knowledge
-* if A and B needs to connect
+* If A and B needs to connect
   * A needs a peerConnection object
   * B needs a peerConnection object
   * These 2 peerConnection objects talk to each other.
-* Negotiation - How does 2 peerConnection object talk to each other?
-  * Each peerConnection needs to set localDescription and a remoteDescription. (If you are new, repeat this out loud a few times, its fundamental)
+* Negotiation - How do 2 peerConnection objects talk to each other?
+  * Each peerConnection needs to set a localDescription and a remoteDescription. (If you are new, repeat this out loud a few times, its fundamental)
   * Example (A and B needs to talk to each other)
     * A creates a peerConnection object. Creates an offer and sets its peerConnection's localDescription to the offer. Sends the offer to B. 
       * Offer is just a string to represent who the client is, required to start a connection.
-    * B gets the offer. B creates a peerConnection and set its remoteDescription to the offer. Creates an answer (a string to represent who the client is based on the offer) and sets its peerConnection's localDescription to the answer. Sends the answer to A
+    * B gets the offer. B creates a peerConnection and sets its remoteDescription to the offer. Creates an answer (a string to represent who the client is based on the offer) and sets its peerConnection's localDescription to the answer. Sends the answer to A
       * Note B's peerConnection object is done because it has both a localDescription and a remoteDescription. 
     * A receives the answer, it sets its peerConnection's remoteDescription to the answer. Now A's peerConnection is also done
     * Both A's peerConnection and B's peerConnection is complete!
