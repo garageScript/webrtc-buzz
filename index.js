@@ -64,5 +64,5 @@ app.post("/report", (req, res) => {
 });
 
 app.listen(3006, () => {
-  console.log("listening on *:3005, webrtc.songz.dev");
+  console.log("listening on *:3006, webrtc.songz.dev");
 });
