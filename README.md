@@ -19,7 +19,7 @@ Visit demo at [webrtc.buzz](https://webrtc.buzz)
   * A needs a peerConnection object
   * B needs a peerConnection object
   * These 2 peerConnection objects talk to each other.
-* Negotiation - How do 2 peerConnection object talk to each other?
+* Negotiation - How do 2 peerConnection objects talk to each other?
   * Each peerConnection needs to set a localDescription and a remoteDescription. (If you are new, repeat this out loud a few times, its fundamental)
   * Example (A and B needs to talk to each other)
     * A creates a peerConnection object. Creates an offer and sets its peerConnection's localDescription to the offer. Sends the offer to B. 
